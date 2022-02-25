@@ -145,6 +145,7 @@ public class AIMod {
                     screenInfo.put("pause", instance.screen.isPauseScreen());
                     screenInfo.put("esc", instance.screen.shouldCloseOnEsc());
                     screenInfo.put("edit", instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.SignEditScreen.class || instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.BookEditScreen.class);
+                    screenInfo.put("id", instance.screen.getClass().toString());
                     playerInfo.put("screeninfo", screenInfo);
                 }
                 map.put("player", playerInfo);
