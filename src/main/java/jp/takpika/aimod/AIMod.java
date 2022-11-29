@@ -79,7 +79,7 @@ public class AIMod {
             Minecraft instance = Minecraft.getInstance();
             if (instance.player != null) {
                 if (data.containsKey("name") && data.containsKey("message")) {
-                    instance.player.chat("/tell " + data.get("name") + " " + data.get("message"));
+                    instance.player.commandSigned("tell " + data.get("name") + " " + data.get("message"), null);
                 }
                 if (data.containsKey("x")) {
                     float xRot = instance.player.getXRot();
