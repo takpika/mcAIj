@@ -120,12 +120,22 @@ public class AIMod {
             map.put("version", 1);
             map.put("active", instance.isWindowActive());
             map.put("message", messages);
+            map.put("screen", instance.screen != null);
+            if (instance.screen != null) {
+                Map<String, Object> screenInfo = new HashMap<>();
+                screenInfo.put("pause", instance.screen.isPauseScreen());
+                screenInfo.put("esc", instance.screen.shouldCloseOnEsc());
+                screenInfo.put("edit", instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.SignEditScreen.class || instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.BookEditScreen.class);
+                screenInfo.put("id", instance.screen.getClass().toString());
+                map.put("screenInfo", screenInfo);
+            }
             if (instance.level != null && instance.player != null){
                 map.put("playing", true);
                 Map<String, Object> playerInfo = new HashMap<>();
                 playerInfo.put("health", instance.player.getHealth());
                 playerInfo.put("name", instance.player.getName().getString());
                 playerInfo.put("death", instance.player.isDeadOrDying());
+                playerInfo.put("gamemode", instance.gameMode.toString());
                 Map<String, Object> pos = new HashMap<>();
                 pos.put("x", instance.player.position().x);
                 pos.put("y", instance.player.position().y);
@@ -139,15 +149,6 @@ public class AIMod {
                 }
                 dir.put("y", y);
                 playerInfo.put("direction", dir);
-                playerInfo.put("screen", instance.screen != null);
-                if (instance.screen != null) {
-                    Map<String, Object> screenInfo = new HashMap<>();
-                    screenInfo.put("pause", instance.screen.isPauseScreen());
-                    screenInfo.put("esc", instance.screen.shouldCloseOnEsc());
-                    screenInfo.put("edit", instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.SignEditScreen.class || instance.screen.getClass() == net.minecraft.client.gui.screens.inventory.BookEditScreen.class);
-                    screenInfo.put("id", instance.screen.getClass().toString());
-                    playerInfo.put("screeninfo", screenInfo);
-                }
                 map.put("player", playerInfo);
             } else {
                 map.put("playing", false);
