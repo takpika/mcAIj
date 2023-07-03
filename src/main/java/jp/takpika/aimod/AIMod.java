@@ -1,10 +1,6 @@
 package jp.takpika.aimod;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -13,13 +9,17 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.URLDecoder;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.regex.Pattern;
+import java.net.UnixDomainSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.net.StandardProtocolFamily;
 
 import com.google.gson.Gson;
 
@@ -28,17 +28,12 @@ public class AIMod {
     public static final String MOD_ID = "aimod";
     private static final Logger LOGGER = LogManager.getLogger("aimod");
     public static List<Map<String, Object>> messages = new ArrayList<>();
+    volatile ServerSocketChannel serverSocketChannel;
 
     public AIMod(){
         MinecraftForge.EVENT_BUS.register(this);
-        try {
-            HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
-            server.createContext("/", new aiHttpHandler());
-            server.setExecutor(null);
-            server.start();
-        }catch (IOException e) {
-            LOGGER.warn(e.getMessage());
-        }
+        unixServer thread = new unixServer();
+        thread.start();
     }
 
     @SubscribeEvent
@@ -63,51 +58,67 @@ public class AIMod {
         return (int) longtime;
     }
 
-    static class aiHttpHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange t) throws IOException {
-            setData(t.getRequestURI());
-            String response = getData();
-            t.sendResponseHeaders(200, response.length());
-            OutputStream os = t.getResponseBody();
-            os.write(response.getBytes());
-            os.close();
+    class unixServer extends Thread {
+        public void run() {
+            RuntimeMXBean bean = ManagementFactory.getRuntimeMXBean();
+            long pid = bean.getPid();
+            Path path = Paths.get("/tmp/mcai." + pid + ".socket");
+            UnixDomainSocketAddress address = UnixDomainSocketAddress.of(path);
+            Gson gson = new Gson();
+            while (true) {
+                try {
+                    Files.deleteIfExists(path);
+                    serverSocketChannel = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
+                    serverSocketChannel.bind(address);
+                    while (true) {
+                        var client = serverSocketChannel.accept();
+                        var buffer = ByteBuffer.allocate(1024);
+                        client.read(buffer);
+                        buffer.flip();
+                        var message = StandardCharsets.UTF_8.decode(buffer).toString();
+                        System.out.println(message);
+                        PostData data = gson.fromJson(message, PostData.class);
+                        setData(data);
+                        client.write(StandardCharsets.UTF_8.encode(getData()));
+                        client.close();
+                    }
+                } catch (IOException e) {
+                    LOGGER.warn(e.getMessage());
+                }
+            }
         }
 
-        private void setData(URI uri) {
-            Map<String, Object> data = parseURI(uri);
+        private void setData(PostData data) {
+            if (data == null) {
+                return;
+            }
             Minecraft instance = Minecraft.getInstance();
-            if (instance.player != null) {
-                if (data.containsKey("name") && data.containsKey("message")) {
-                    instance.player.commandSigned("tell " + data.get("name") + " " + data.get("message"), null);
-                }
-                if (data.containsKey("x")) {
+            if (data.pos != null) {
+                if (instance.player != null) {
                     float xRot = instance.player.getXRot();
-                    instance.player.setXRot(xRot + (float) data.get("x"));
-                }
-                if (data.containsKey("y")) {
                     float yRot = instance.player.getYRot() % 360.0f;
                     if (yRot < 0) {
                         yRot += 360.0f;
                     }
-                    instance.player.setYRot(yRot + (float) data.get("y"));
+                    instance.player.setXRot(xRot + data.pos.x);
+                    instance.player.setYRot(yRot + data.pos.y);
                 }
-                if (data.containsKey("close")) {
-                    if ((Boolean) data.get("close")) {
-                        System.exit(0);
-                    }
+            }
+            if (data.close != null) {
+                if (data.close) {
+                    System.exit(0);
                 }
-                if (data.containsKey("checked")) {
-                    int count = 0;
-                    for (Map<String, Object> mes: messages) {
-                        if (Objects.equals(mes.get("id").toString(), data.get("checked").toString())) {
-                            break;
-                        }
-                        count += 1;
+            }
+            if (data.checked != null) {
+                int count = 0;
+                for (Map<String, Object> mes: messages) {
+                    if (Objects.equals(mes.get("id").toString(), data.checked)) {
+                        break;
                     }
-                    if (count < messages.size()) {
-                        messages.remove(count);
-                    }
+                    count += 1;
+                }
+                if (count < messages.size()) {
+                    messages.remove(count);
                 }
             }
         }
@@ -154,44 +165,6 @@ public class AIMod {
                 map.put("playing", false);
             }
             return gson.toJson(map);
-        }
-
-        public Map<String, Object> parseURI(URI rawuri) {
-            String uri = rawuri.toString().substring(1);
-            Map<String, Object> data = new HashMap<>();
-            if (uri.length() > 1){
-                if (uri.charAt(0) == '?') {
-                    uri = uri.substring(1);
-                    String[] qs = uri.split("&");
-                    for (String q: qs) {
-                        String[] pair = q.split("=");
-                        String regex = "^-?[0-9]*$";
-                        Pattern p = Pattern.compile(regex);
-                        try{
-                            pair[1] = URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
-                        }catch (Exception ignored){
-                        }
-                        if (p.matcher(pair[1]).find()) {
-                            long num = Long.parseLong(pair[1]);
-                            data.put(pair[0], num);
-                            continue;
-                        }
-                        try {
-                            Float num = Float.parseFloat(pair[1]);
-                            data.put(pair[0], num);
-                            continue;
-                        }catch (Exception ignored) {
-                        }
-                        String lower = pair[1].toLowerCase();
-                        if (lower.equals("true") || lower.equals("false")){
-                            data.put(pair[0], lower.equals("true"));
-                            continue;
-                        }
-                        data.put(pair[0], pair[1]);
-                    }
-                }
-            }
-            return data;
         }
     }
 }
