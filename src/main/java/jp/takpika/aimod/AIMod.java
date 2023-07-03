@@ -76,7 +76,6 @@ public class AIMod {
                         client.read(buffer);
                         buffer.flip();
                         var message = StandardCharsets.UTF_8.decode(buffer).toString();
-                        System.out.println(message);
                         PostData data = gson.fromJson(message, PostData.class);
                         setData(data);
                         client.write(StandardCharsets.UTF_8.encode(getData()));
